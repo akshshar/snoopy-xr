@@ -4,6 +4,15 @@ Installing snoopy on IOS-XR to log all exec messages
 This is a fairly simple exercise.
 We're gonna learn from https://xrdocs.github.io/application-hosting/tutorials/2016-06-17-xr-toolbox-part-5-running-a-native-wrl7-app/  and download the WRL7 vagrant box advertised to help build snoopy from scratch for WRL7 running as a distribution on IOS-XR.
 
+
+## What is Snoopy?
+
+You can learn more about snoopy here:  https://github.com/a2o/snoopy
+It's a small library that basically logs all the executed commands (+ arguments) on your system and sends logs to /var/log/auth.log or equivalent locations based on the distro in use.
+
+
+
+
 ## Setup a WRL7 vagrant box environment
 
 The WRL7 vagrant box is published on atlas at:  <https://app.vagrantup.com/ciscoxr/boxes/appdev-xr6.1.1>
@@ -136,7 +145,128 @@ The build should be successful and you'll find your installable RPM at the locat
 /usr/src/rpm/RPMS/x86_64/snoopy-2.4.6-XR_6.2.2.x86_64.rpm
 ```
 
-scp this RPM onto an IOS-XR router's bash prompt
+## Installing snoopy RPM on IOS-XR 
+
+scp this RPM onto an IOS-XR router's bash prompt and install using a yum localonly install:
+
+```
+[host:~]$ yum install localonly snoopy-2.4.6-XR_6.2.2.x86_64.rpm 
+Loaded plugins: downloadonly, protect-packages, rpm-persistence
+puppetlabs                                               | 2.9 kB     00:00     
+puppetlabs/primary_db                                    |  20 kB     00:00     
+Setting up Install Process
+No package localonly available.
+Examining snoopy-2.4.6-XR_6.2.2.x86_64.rpm: snoopy-2.4.6-XR_6.2.2.x86_64
+Marking snoopy-2.4.6-XR_6.2.2.x86_64.rpm to be installed
+Resolving Dependencies
+--> Running transaction check
+---> Package snoopy.x86_64 0:2.4.6-XR_6.2.2 will be installed
+--> Finished Dependency Resolution
+
+################  SNIP OUTPUT ############
+
+```
+
+
+### Enabling snoopy:
+
+You can now enable snoopy on the system by executing the installed enable binary:
+
+```
+[host:~]$ snoopy-enable.x86_64 
+SNOOPY: Removing from /etc/ld.so.preload: /usr/lib/libsnoopy.so
+SNOOPY: Adding to /etc/ld.so.preload:     /usr/lib/libsnoopy.so
+SNOOPY: Hint #1: Reboot your machine to load Snoopy system-wide.
+SNOOPY: Hint #2: Check your log files for output.
+SNOOPY: Enabled.
+[host:~]$ 
+
+```
+
+To disable, just run snoopy-disable.x86_64 
+
+
+## Testing snoopy on IOS-XR
+
+This is can prove to be quite verbose depending on what sort of exec commands are executed. But let's try out a simple shell script:
+
+```
+[host:~]$ cat loop.sh 
+#!/bin/bash
+
+while true; do
+    ip netns exec global-vrf ifconfig
+    ip netns exec global-vrf ping 11.11.11.2 -c 2
+    sleep 5
+done
+[host:~]$ 
+
+```
+
+We'll run this shell script in the background and see if snoopy picks up the actions it takes:
+
+```
+[host:~]$ ./loop.sh > /dev/null 2>&1 &
+[1] 30437
+[host:~]$ 
+```
+
+Checking the logs in `/var/log/auth.log`:
+
+```
+[host:~]$ tail -f /var/log/auth.log 
+Oct 14 10:30:30 host snoopy[30451]: [uid:0 sid:29815 tty:/dev/pts/5 cwd:/misc/scratch filename:/usr/bin/wc]: wc -l /var/log/xr_audit_trail_logs/audit_29840
+Oct 14 10:30:31 host snoopy[30453]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ifconfig
+Oct 14 10:30:31 host snoopy[30454]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ping 11.11.11.2 -c 2
+Oct 14 10:30:32 host snoopy[30455]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/bin/sleep]: sleep 5
+Oct 14 10:30:35 host snoopy[30464]: [uid:0 sid:29815 tty:/dev/pts/5 cwd:/misc/scratch filename:/usr/bin/wc]: wc -l /var/log/xr_audit_trail_logs/audit_29840
+Oct 14 10:30:37 host snoopy[30466]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ifconfig
+Oct 14 10:30:37 host snoopy[30467]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ping 11.11.11.2 -c 2
+Oct 14 10:30:38 host snoopy[30468]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/bin/sleep]: sleep 5
+Oct 14 10:30:40 host snoopy[30470]: [uid:0 sid:29815 tty:/dev/pts/5 cwd:/misc/scratch filename:/usr/bin/wc]: wc -l /var/log/xr_audit_trail_logs/audit_29840
+Oct 14 10:30:41 host snoopy[30472]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/usr/bin/tail]: tail -f /var/log/auth.log
+Oct 14 10:30:43 host snoopy[30473]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ifconfig
+Oct 14 10:30:43 host snoopy[30474]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ping 11.11.11.2 -c 2
+Oct 14 10:30:44 host snoopy[30475]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/bin/sleep]: sleep 5
+Oct 14 10:30:45 host snoopy[30477]: [uid:0 sid:29815 tty:/dev/pts/5 cwd:/misc/scratch filename:/usr/bin/wc]: wc -l /var/log/xr_audit_trail_logs/audit_29840
+Oct 14 10:30:49 host snoopy[30479]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ifconfig
+Oct 14 10:30:49 host snoopy[30480]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/sbin/ip]: ip netns exec global-vrf ping 11.11.11.2 -c 2
+Oct 14 10:30:50 host snoopy[30481]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root filename:/bin/sleep]: sleep 5
+Oct 14 10:30:50 host snoopy[30483]: [uid:0 sid:29815 tty:/dev/pts/5 cwd:/misc/scratch filename:/usr/bin/wc]: wc -l /var/log/xr_audit_trail_logs/audit_29840
+
+
+```
+
+
+Awesome. This will even capture logs for basic events like `cp` or `cat`:
+
+```
+Oct 14 10:31:53 host snoopy[30556]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root fii
+lename:/bin/cp]: cp loop.sh new_loop.sh
+Oct 14 10:31:57 host snoopy[30560]: [uid:0 sid:29857 tty:/dev/pts/7 cwd:/root fii
+lename:/bin/cat]: cat /etc/passwd
+```
+
+
+## Disclaimer
+
+This is purely a representation of how an auditing system can be set up for linux events in IOS-XR. Snoopy isn't intended to be used in production devices.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
